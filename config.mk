@@ -3,12 +3,12 @@ VERSION = 0.5.2
 
 # Customize below to fit your system
 
-PREFIX = /usr/local
+PREFIX = /Users/sam/bin/
 MANPREFIX = ${PREFIX}/share/man
 
 INCS = -I. -I/usr/include -I/usr/local/include 
-LIBS = -lc -lutil -lncursesw
-#LIBS = -lc -lutil -lncurses
+#LIBS = -lc -lutil -lncursesw
+LIBS = -lc -lutil -lncurses
 
 CFLAGS += -std=c99 -Os ${INCS} -DVERSION=\"${VERSION}\" -DNDEBUG
 LDFLAGS += -L/usr/lib -L/usr/local/lib ${LIBS}

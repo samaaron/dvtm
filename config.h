@@ -38,7 +38,7 @@
 /* master width factor [0.1 .. 0.9] */
 #define MWFACT  0.5
 /* scroll back buffer size in lines */
-#define SCROLL_BUF_SIZE 500
+#define SCROLL_BUF_SIZE 10000
 
 #include "tile.c"
 #include "grid.c"
@@ -52,48 +52,49 @@ Layout layouts[] = {
 	{ "[ ]", fullscreen },
 };
 
-#define MOD CTRL('g')
+#define XMOD CTRL('i')
+#define FMOD CTRL('f')
 
 /* you can at most specifiy MAX_ARGS (2) number of arguments */
 Key keys[] = {
-	{ MOD, 'c',       { create,         { NULL }                    } },
-	{ MOD, 'x',       { killclient,     { NULL }                    } },
-	{ MOD, 'j',       { focusnext,      { NULL }                    } },
-	{ MOD, 'u',       { focusnextnm,    { NULL }                    } },
-	{ MOD, 'i',       { focusprevnm,    { NULL }                    } },
-	{ MOD, 'k',       { focusprev,      { NULL }                    } },
-	{ MOD, 't',       { setlayout,      { "[]=" }                   } },
-	{ MOD, 'g',       { setlayout,      { "+++" }                   } },
-	{ MOD, 'b',       { setlayout,      { "TTT" }                   } },
-	{ MOD, 'm',       { setlayout,      { "[ ]" }                   } },
-	{ MOD, ' ',       { setlayout,      { NULL }                    } },
-	{ MOD, 'h',       { setmwfact,      { "-0.05" }                 } },
-	{ MOD, 'l',       { setmwfact,      { "+0.05" }                 } },
-	{ MOD, '.',       { toggleminimize, { NULL }                    } },
+	{ XMOD, 'd',	    { create,	      { NULL }			  } },
+	{ XMOD, '0',	    { killclient,     { NULL }			  } },
+	{ XMOD, 'o',	    { focusnext,      { NULL }			  } },
+	{ XMOD, 'f',	    { focusnextnm,    { NULL }			  } },
+	{ XMOD, 'b',	 { focusprevnm,	   { NULL }		       } },
+	{ XMOD, 'i',	 { focusprev,	   { NULL }		       } },
+	{ XMOD, 't',	 { setlayout,	   { "[]=" }		       } },
+	{ XMOD, 'g',	 { setlayout,	   { "+++" }		       } },
+	{ XMOD, 's',	 { setlayout,	   { "TTT" }		       } },
+	{ XMOD, '1',	 { setlayout,	   { "[ ]" }		       } },
+	{ XMOD, ' ',	 { setlayout,	   { NULL }		       } },
+	{ XMOD, ',',	 { setmwfact,	   { "-0.05" }		       } },
+	{ XMOD, '.',	 { setmwfact,	   { "+0.05" }		       } },
+	{ XMOD, 'm',	 { toggleminimize, { NULL }		       } },
 #ifdef CONFIG_STATUSBAR
-	{ MOD, 's',       { togglebar,      { NULL }                    } },
+	{ XMOD, 'u',       { togglebar,      { NULL }                    } },
 #endif
 #ifdef CONFIG_MOUSE
-	{ MOD, 'M',       { mouse_toggle,   { NULL }                    } },
+	{ XMOD, 'M',       { mouse_toggle,   { NULL }                    } },
 #endif
-	{ MOD, '\n',      { zoom ,          { NULL }                    } },
-	{ MOD, '1',       { focusn,         { "1" }                     } },
-	{ MOD, '2',       { focusn,         { "2" }                     } },
-	{ MOD, '3',       { focusn,         { "3" }                     } },
-	{ MOD, '4',       { focusn,         { "4" }                     } },
-	{ MOD, '5',       { focusn,         { "5" }                     } },
-	{ MOD, '6',       { focusn,         { "6" }                     } },
-	{ MOD, '7',       { focusn,         { "7" }                     } },
-	{ MOD, '8',       { focusn,         { "8" }                     } },
-	{ MOD, '9',       { focusn,         { "9" }                     } },
-	{ MOD, 'q',       { quit,           { NULL }                    } },
-	{ MOD, 'G',       { escapekey,      { NULL }                    } },
-	{ MOD, 'r',       { redraw,         { NULL }                    } },
-	{ MOD, 'X',       { lock,           { NULL }                    } },
-	{ MOD, 'B',       { togglebell,     { NULL }                    } },
-	{ MOD, KEY_PPAGE, { scrollback,     { "-1" }                    } },
-	{ MOD, KEY_NPAGE, { scrollback,     { "1"  }                    } },
-	{ MOD, '?',       { create,         { "man dvtm", "dvtm help" } } },
+	{ XMOD, '\n',	    { zoom ,	      { NULL }			  } },
+	{ FMOD, '1',	    { focusn,	      { "1" }			  } },
+	{ FMOD, '2',	    { focusn,	      { "2" }			  } },
+	{ FMOD, '3',	    { focusn,	      { "3" }			  } },
+	{ FMOD, '4',	    { focusn,	      { "4" }			  } },
+	{ FMOD, '5',	    { focusn,	      { "5" }			  } },
+	{ FMOD, '6',	    { focusn,	      { "6" }			  } },
+	{ FMOD, '7',	    { focusn,	      { "7" }			  } },
+	{ FMOD, '8',	    { focusn,	      { "8" }			  } },
+	{ FMOD, '9',	    { focusn,	      { "9" }			  } },
+	{ XMOD, 'q',	    { quit,	      { NULL }			  } },
+	{ XMOD, 'G',	    { escapekey,      { NULL }			  } },
+	{ XMOD, 'r',	    { redraw,	      { NULL }			  } },
+	{ XMOD, 'X',	    { lock,	      { NULL }			  } },
+	{ XMOD, 'B',	    { togglebell,     { NULL }			  } },
+	{ XMOD, 'p',	    { scrollback,     { "-1" }			  } },
+	{ XMOD, 'n',	    { scrollback,     { "1"  }			  } },
+	{ XMOD, '?',	    { create,	      { "man dvtm", "dvtm help" } } },
 };
 
 /* possible values for the mouse buttons are listed below:
