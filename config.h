@@ -56,7 +56,7 @@ Layout layouts[] = {
 
 /* you can at most specifiy MAX_ARGS (2) number of arguments */
 Key keys[] = {
-	{ MOD, 'd',	    { create,	      { NULL }			  } },
+	{ MOD, '3',	    { create,	      { NULL }			  } },
 	{ MOD, '0',	    { killclient,     { NULL }			  } },
 	{ MOD, 'o',	    { focusnext,      { NULL }			  } },
 	{ MOD, 'f',	    { focusnextnm,    { NULL }			  } },
