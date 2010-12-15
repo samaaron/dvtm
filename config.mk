@@ -3,15 +3,14 @@ VERSION = 0.5.2
 
 # Customize below to fit your system
 
-PREFIX = /Users/sam/bin/
+PREFIX = /usr/local
 MANPREFIX = ${PREFIX}/share/man
 
-INCS = -I. -I/usr/include -I/usr/local/include 
-#LIBS = -lc -lutil -lncursesw
+INCS = -I. -I/usr/local/include/ -I/usr/include -I/usr/local/include 
 LIBS = -lc -lutil -lncurses
 
 CFLAGS += -std=c99 -Os ${INCS} -DVERSION=\"${VERSION}\" -DNDEBUG
-LDFLAGS += -L/usr/lib -L/usr/local/lib ${LIBS}
+LDFLAGS += -L/usr/local/lib/ -L/usr/lib -L/usr/local/lib ${LIBS}
 
 # Mouse handling
 CFLAGS += -DCONFIG_MOUSE

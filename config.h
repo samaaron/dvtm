@@ -38,7 +38,7 @@
 /* master width factor [0.1 .. 0.9] */
 #define MWFACT  0.5
 /* scroll back buffer size in lines */
-#define SCROLL_BUF_SIZE 10000
+#define SCROLL_BUF_SIZE 100000
 
 #include "tile.c"
 #include "grid.c"
