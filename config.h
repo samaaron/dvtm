@@ -45,6 +45,7 @@
 #include "bstack.c"
 #include "fullscreen.c"
 
+/* by default the first layout entry is used */
 Layout layouts[] = {
 	{ "[]=", tile },
 	{ "+++", grid },
@@ -88,6 +89,7 @@ Key keys[] = {
 	{ MOD, '(',	    { focusn,	      { "9" }			  } },
 	{ MOD, 'q',	    { quit,	      { NULL }			  } },
 	{ MOD, 'G',	    { escapekey,      { NULL }			  } },
+	{ MOD, 'a',       { togglerunall,   { NULL }                    } },
 	{ MOD, 'r',	    { redraw,	      { NULL }			  } },
 	{ MOD, 'X',	    { lock,	      { NULL }			  } },
 	{ MOD, 'B',	    { togglebell,     { NULL }			  } },
