@@ -12,14 +12,14 @@
  * A_INVIS         Invisible or blank mode
  *
  */
-#define BLUE            (COLORS==256 ? 68 : COLOR_BLUE)
+#define BLUE            197
 
 #define SELECTED_ATTR   A_NORMAL
 #define SELECTED_FG     BLUE
 #define SELECTED_BG     -1
 /* curses attributes for normal (not selected) windows */
 #define NORMAL_ATTR     A_NORMAL
-#define NORMAL_FG       -1
+#define NORMAL_FG       241
 #define NORMAL_BG       -1
 /* status bar (command line option -s) position */
 #define BARPOS		BarTop /* BarBot, BarOff */
