@@ -17,7 +17,7 @@
 
     Copyright © 2004 Bruno T. C. de Oliveira
     Copyright © 2006 Pierre Habouzit
-    Copyright © 2008 Marc Andre Tanner
+    Copyright © 2008-2011 Marc Andre Tanner
  */
 
 #define _GNU_SOURCE
@@ -54,12 +54,10 @@
 #define IS_CONTROL(ch) !((ch) & 0xffffff60UL)
 
 static int has_default, is_utf8, use_palette;
-
 static const unsigned palette_start = 1;
-static const unsigned palette_end   = 256;
-static unsigned  palette_cur;
-static short    *color2palette;
-static unsigned  color_hash(short f, short b) { return ((f+1) * (COLORS+1)) + b+1 ; }
+static const unsigned palette_end = 256;
+static unsigned palette_cur;
+static short *color2palette;
 
 enum {
     C0_NUL = 0x00,
@@ -97,15 +95,18 @@ struct madtty_t {
     unsigned seen_input : 1;
     unsigned insert     : 1;
     unsigned escaped    : 1;
-    unsigned graphmode  : 1;
     unsigned curshid    : 1;
     unsigned curskeymode: 1;
     unsigned bell       : 1;
+    unsigned relposmode : 1;
+    unsigned mousetrack : 1;
+    unsigned graphmode  : 1;
+    bool charsets[2];
 
     /* geometry */
     int rows, cols, maxcols;
-    unsigned curattrs;
-    short curfg, curbg;
+    unsigned curattrs, savattrs;
+    short curfg, curbg, savfg, savbg;
 
     /* scrollback buffer */
     struct t_row_t *scroll_buf;
@@ -188,8 +189,9 @@ static char const * const keytable[KEY_MAX+1] = {
     [KEY_F(20)]     = "\e[34~",
 };
 
-__attribute__((const))
-static uint16_t build_attrs(unsigned curattrs)
+static void madtty_process_nonprinting(madtty_t *t, wchar_t wc);
+
+__attribute__((const)) static uint16_t build_attrs(unsigned curattrs)
 {
     return ((curattrs & ~A_COLOR) | COLOR_PAIR(curattrs & 0xff))
         >> NCURSES_ATTR_SHIFT;
@@ -223,27 +225,48 @@ static void t_row_roll(t_row_t *start, t_row_t *end, int count)
         memcpy(buf, start, count * sizeof(t_row_t));
         memmove(start, start + count, (n - count) * sizeof(t_row_t));
         memcpy(end - count, buf, count * sizeof(t_row_t));
-        for (t_row_t *row = start; row < end; row++) {
+        for (t_row_t *row = start; row < end; row++)
             row->dirty = true;
-        }
     }
 }
 
 static void clamp_cursor_to_bounds(madtty_t *t)
 {
-    if (t->curs_row < t->lines) {
+    if (t->curs_row < t->lines)
         t->curs_row = t->lines;
-    }
-    if (t->curs_row >= t->lines + t->rows) {
+    if (t->curs_row >= t->lines + t->rows)
         t->curs_row = t->lines + t->rows - 1;
-    }
-
-    if (t->curs_col < 0) {
+    if (t->curs_col < 0)
         t->curs_col = 0;
-    }
-    if (t->curs_col >= t->cols) {
+    if (t->curs_col >= t->cols)
         t->curs_col = t->cols - 1;
-    }
+}
+
+static void save_curs(madtty_t *t)
+{
+    t->curs_srow = t->curs_row - t->lines;
+    t->curs_scol = t->curs_col;
+}
+
+static void restore_curs(madtty_t *t)
+{
+    t->curs_row = t->lines + t->curs_srow;
+    t->curs_col = t->curs_scol;
+    clamp_cursor_to_bounds(t);
+}
+
+static void save_attrs(madtty_t *t)
+{
+    t->savattrs = t->curattrs;
+    t->savfg = t->curfg;
+    t->savbg = t->curbg;
+}
+
+static void restore_attrs(madtty_t *t)
+{
+    t->curattrs = t->savattrs;
+    t->curfg = t->savfg;
+    t->curbg = t->savbg;
 }
 
 static void fill_scroll_buf(madtty_t *t, int s)
@@ -252,7 +275,7 @@ static void fill_scroll_buf(madtty_t *t, int s)
     int ssz = t->scroll_bot - t->scroll_top;
     if (s > ssz) {
 	fill_scroll_buf(t, ssz);
-	fill_scroll_buf(t, s-ssz);
+	fill_scroll_buf(t, s - ssz);
 	return;
     }
     if (s < -ssz) {
@@ -278,7 +301,7 @@ static void fill_scroll_buf(madtty_t *t, int s)
     }
     t_row_roll(t->scroll_top, t->scroll_bot, s);
     if (s < 0 && t->scroll_buf_sz) {
-	for (int i = (-s)-1; i >= 0; i--) {
+	for (int i = (-s) - 1; i >= 0; i--) {
 	    t->scroll_buf_ptr--;
 	    if (t->scroll_buf_ptr == -1)
 		t->scroll_buf_ptr = t->scroll_buf_sz - 1;
@@ -329,8 +352,6 @@ static bool is_valid_csi_ender(int c)
 /* interprets a 'set attribute' (SGR) CSI escape sequence */
 static void interpret_csi_SGR(madtty_t *t, int param[], int pcount)
 {
-    int i;
-
     if (pcount == 0) {
         /* special case: reset attributes */
         t->curattrs = A_NORMAL;
@@ -338,50 +359,64 @@ static void interpret_csi_SGR(madtty_t *t, int param[], int pcount)
         return;
     }
 
-    for (i = 0; i < pcount; i++) {
+    for (int i = 0; i < pcount; i++) {
         switch (param[i]) {
-#define CASE(x, op)  case x: op; break
-            CASE(0,  t->curattrs = A_NORMAL; t->curfg = t->curbg = -1);
-            CASE(1,  t->curattrs |= A_BOLD);
-            CASE(4,  t->curattrs |= A_UNDERLINE);
-            CASE(5,  t->curattrs |= A_BLINK);
-            CASE(6,  t->curattrs |= A_BLINK);
-            CASE(7,  t->curattrs |= A_REVERSE);
-            CASE(8,  t->curattrs |= A_INVIS);
-            CASE(22, t->curattrs &= ~A_BOLD);
-            CASE(24, t->curattrs &= ~A_UNDERLINE);
-            CASE(25, t->curattrs &= ~A_BLINK);
-            CASE(27, t->curattrs &= ~A_REVERSE);
-            CASE(28, t->curattrs &= ~A_INVIS);
-
+          case 0:
+            t->curattrs = A_NORMAL;
+            t->curfg = t->curbg = -1;
+            break;
+          case 1:
+            t->curattrs |= A_BOLD;
+            break;
+          case 4:
+            t->curattrs |= A_UNDERLINE;
+            break;
+          case 5:
+            t->curattrs |= A_BLINK;
+            break;
+          case 7:
+            t->curattrs |= A_REVERSE;
+            break;
+          case 8:
+            t->curattrs |= A_INVIS;
+            break;
+          case 22:
+            t->curattrs &= ~A_BOLD;
+            break;
+          case 24:
+            t->curattrs &= ~A_UNDERLINE;
+            break;
+          case 25:
+            t->curattrs &= ~A_BLINK;
+            break;
+          case 27:
+            t->curattrs &= ~A_REVERSE;
+            break;
+          case 28:
+            t->curattrs &= ~A_INVIS;
+            break;
           case 30 ... 37: /* fg */
-            t->curfg = param[i]-30;
+            t->curfg = param[i] - 30;
             break;
-
           case 38:
-            assert(param[i+1] == 5);
-            t->curfg = param[i+2];
-            i+=2;
+            assert(param[i + 1] == 5);
+            t->curfg = param[i + 2];
+            i += 2;
             break;
-
           case 39:
             t->curfg = -1;
             break;
-
           case 40 ... 47: /* bg */
             t->curbg = param[i] - 40;
             break;
-
           case 48:
-            assert(param[i+1] == 5);
-            t->curbg = param[i+2];
-            i+=2;
+            assert(param[i + 1] == 5);
+            t->curbg = param[i + 2];
+            i += 2;
             break;
-
           case 49:
             t->curbg = -1;
             break;
-
           default:
             break;
         }
@@ -393,25 +428,28 @@ static void interpret_csi_ED(madtty_t *t, int param[], int pcount)
 {
     t_row_t *row, *start, *end;
 
+    save_attrs(t);
+    t->curattrs = A_NORMAL;
+    t->curfg = t->curbg = -1;
+
     /* decide range */
     if (pcount && param[0] == 2) {
         start = t->lines;
         end   = t->lines + t->rows;
-    } else
-    if (pcount && param[0] == 1) {
+    } else if (pcount && param[0] == 1) {
         start = t->lines;
         end   = t->curs_row;
         t_row_set(t->curs_row, 0, t->curs_col + 1, t);
     } else {
-        t_row_set(t->curs_row, t->curs_col,
-                     t->cols - t->curs_col, t);
+        t_row_set(t->curs_row, t->curs_col, t->cols - t->curs_col, t);
         start = t->curs_row + 1;
         end   = t->lines + t->rows;
     }
 
-    for (row = start; row < end; row++) {
+    for (row = start; row < end; row++)
         t_row_set(row, 0, t->cols, t);
-    }
+
+    restore_attrs(t);
 }
 
 /* interprets a 'move cursor' (CUP) escape sequence */
@@ -421,22 +459,20 @@ static void interpret_csi_CUP(madtty_t *t, int param[], int pcount)
         /* special case */
         t->curs_row = t->lines;
         t->curs_col = 0;
-        return;
-    } else
-    if (pcount < 2) {
-        return;  /* malformed */
+    } else if (pcount == 1) {
+        t->curs_row = (t->relposmode ? t->scroll_top : t->lines) + param[0] - 1;
+        t->curs_col = 0;
+    } else {
+        t->curs_row = (t->relposmode ? t->scroll_top : t->lines) + param[0] - 1;
+        t->curs_col = param[1] - 1;
     }
-
-    t->curs_row = t->lines + param[0] - 1;
-    t->curs_col = param[1] - 1;
 
     clamp_cursor_to_bounds(t);
 }
 
 /* Interpret the 'relative mode' sequences: CUU, CUD, CUF, CUB, CNL,
  * CPL, CHA, HPR, VPA, VPR, HPA */
-static void
-interpret_csi_C(madtty_t *t, char verb, int param[], int pcount)
+static void interpret_csi_C(madtty_t *t, char verb, int param[], int pcount)
 {
     int n = (pcount && param[0] > 0) ? param[0] : 1;
 
@@ -475,13 +511,11 @@ static void interpret_csi_ICH(madtty_t *t, int param[], int pcount)
 {
     t_row_t *row = t->curs_row;
     int n = (pcount && param[0] > 0) ? param[0] : 1;
-    int i;
 
-    if (t->curs_col + n > t->cols) {
+    if (t->curs_col + n > t->cols)
         n = t->cols - t->curs_col;
-    }
 
-    for (i = t->cols - 1; i >= t->curs_col + n; i--) {
+    for (int i = t->cols - 1; i >= t->curs_col + n; i--) {
         row->text[i] = row->text[i - n];
         row->attr[i] = row->attr[i - n];
         row->bg  [i] = row->bg  [i - n];
@@ -496,13 +530,11 @@ static void interpret_csi_DCH(madtty_t *t, int param[], int pcount)
 {
     t_row_t *row = t->curs_row;
     int n = (pcount && param[0] > 0) ? param[0] : 1;
-    int i;
 
-    if (t->curs_col + n > t->cols) {
+    if (t->curs_col + n > t->cols)
         n = t->cols - t->curs_col;
-    }
 
-    for (i = t->curs_col; i < t->cols - n; i++) {
+    for (int i = t->curs_col; i < t->cols - n; i++) {
         row->text[i] = row->text[i + n];
         row->attr[i] = row->attr[i + n];
         row->bg  [i] = row->bg  [i + n];
@@ -512,27 +544,18 @@ static void interpret_csi_DCH(madtty_t *t, int param[], int pcount)
     t_row_set(row, t->cols - n, n, t);
 }
 
-/* Interpret a 'scroll reverse' (SR) */
-static void interpret_csi_SR(madtty_t *t)
-{
-    t_row_roll(t->scroll_top, t->scroll_bot, -1);
-    t_row_set(t->scroll_top, 0, t->cols, t);
-}
-
 /* Interpret an 'insert line' sequence (IL) */
 static void interpret_csi_IL(madtty_t *t, int param[], int pcount)
 {
     int n = (pcount && param[0] > 0) ? param[0] : 1;
 
     if (t->curs_row + n >= t->scroll_bot) {
-        for (t_row_t *row = t->curs_row; row < t->scroll_bot; row++) {
+        for (t_row_t *row = t->curs_row; row < t->scroll_bot; row++)
             t_row_set(row, 0, t->cols, t);
-        }
     } else {
         t_row_roll(t->curs_row, t->scroll_bot, -n);
-        for (t_row_t *row = t->curs_row; row < t->curs_row + n; row++) {
+        for (t_row_t *row = t->curs_row; row < t->curs_row + n; row++)
             t_row_set(row, 0, t->cols, t);
-        }
     }
 }
 
@@ -542,14 +565,12 @@ static void interpret_csi_DL(madtty_t *t, int param[], int pcount)
     int n = (pcount && param[0] > 0) ? param[0] : 1;
 
     if (t->curs_row + n >= t->scroll_bot) {
-        for (t_row_t *row = t->curs_row; row < t->scroll_bot; row++) {
+        for (t_row_t *row = t->curs_row; row < t->scroll_bot; row++)
             t_row_set(row, 0, t->cols, t);
-        }
     } else {
         t_row_roll(t->curs_row, t->scroll_bot, n);
-        for (t_row_t *row = t->scroll_bot - n; row < t->scroll_bot; row++) {
+        for (t_row_t *row = t->scroll_bot - n; row < t->scroll_bot; row++)
             t_row_set(row, 0, t->cols, t);
-        }
     }
 }
 
@@ -558,9 +579,9 @@ static void interpret_csi_ECH(madtty_t *t, int param[], int pcount)
 {
     int n = (pcount && param[0] > 0) ? param[0] : 1;
 
-    if (t->curs_col + n < t->cols) {
+    if (t->curs_col + n < t->cols)
         n = t->cols - t->curs_col;
-    }
+
     t_row_set(t->curs_row, t->curs_col, n, t);
 }
 
@@ -574,9 +595,6 @@ static void interpret_csi_DECSTBM(madtty_t *t, int param[], int pcount)
         t->scroll_top = t->lines;
         t->scroll_bot = t->lines + t->rows;
         break;
-      default:
-        return; /* malformed */
-
       case 2:
         new_top = param[0] - 1;
         new_bot = param[1];
@@ -597,6 +615,8 @@ static void interpret_csi_DECSTBM(madtty_t *t, int param[], int pcount)
             t->scroll_bot = t->lines + new_bot;
         }
         break;
+      default:
+        return; /* malformed */
     }
 }
 
@@ -607,16 +627,19 @@ static void es_interpret_csi(madtty_t *t)
     const char *p = t->ebuf + 1;
     char verb = t->ebuf[t->elen - 1];
 
-    p += t->ebuf[1] == '?'; /* CSI private mode */
+    p += (t->ebuf[1] == '?'); /* CSI private mode */
 
     /* parse numeric parameters */
-    while (isdigit((unsigned char)*p) || *p == ';') {
-        if (*p == ';') {
+    while (*p) {
+        if (IS_CONTROL(*p)) {
+            madtty_process_nonprinting(t, *p);
+        } else if (*p == ';') {
             if (param_count >= (int)sizeof(csiparam))
                 return; /* too long! */
             csiparam[param_count++] = 0;
-        } else {
-            if (param_count == 0) csiparam[param_count++] = 0;
+        } else if (isdigit((unsigned char)*p)) {
+            if (param_count == 0)
+                csiparam[param_count++] = 0;
             csiparam[param_count - 1] *= 10;
             csiparam[param_count - 1] += *p - '0';
         }
@@ -625,30 +648,44 @@ static void es_interpret_csi(madtty_t *t)
     }
 
     if (t->ebuf[1] == '?') {
-        switch (verb) {
-          case 'l':
-            if (csiparam[0] == 25)
-                t->curshid = true;
-            if (csiparam[0] == 1) /* DECCKM: reset ANSI cursor (normal) key mode */
-                t->curskeymode = 0;
-            if (csiparam[0] == 47) {
-                /* use normal screen buffer */
-                t->curattrs = A_NORMAL;
-                t->curfg = t->curbg = -1;
-            }
-            break;
-
-          case 'h':
-            if (csiparam[0] == 25)
+        if (verb == 'h') { /* DEC Private Mode Set (DECSET) */
+            switch (csiparam[0]) {
+              case 1: /* set ANSI cursor (application) key mode (DECCKM) */
+                t->curskeymode = true;
+                break;
+              case 6: /* set origin to relative (DECOM) */
+                t->relposmode = true;
+                break;
+              case 25: /* make cursor visible (DECCM) */
                 t->curshid = false;
-            if (csiparam[0] == 1) /* DECCKM: set ANSI cursor (application) key mode */
-                t->curskeymode = 1;
-            if (csiparam[0] == 47) {
-                /* use alternate screen buffer */
+                break;
+              case 47: /* use alternate screen buffer */
                 t->curattrs = A_NORMAL;
                 t->curfg = t->curbg = -1;
+                break;
+              case 1000: /* enable normal mouse tracking */
+                t->mousetrack = true;
+                break;
             }
-            break;
+        } else if (verb == 'l') { /* DEC Private Mode Reset (DECRST) */
+            switch (csiparam[0]) {
+              case 1: /* reset ANSI cursor (normal) key mode (DECCKM) */
+                t->curskeymode = false;
+                break;
+              case 6: /* set origin to absolute (DECOM) */
+                t->relposmode = false;
+                break;
+              case 25: /* make cursor visible (DECCM) */
+                t->curshid = true;
+                break;
+              case 47: /* use normal screen buffer */
+                t->curattrs = A_NORMAL;
+                t->curfg = t->curbg = -1;
+                break;
+              case 1000: /* disable normal mouse tracking */
+                t->mousetrack = false;
+                break;
+            }
         }
     }
 
@@ -687,26 +724,60 @@ static void es_interpret_csi(madtty_t *t)
       case 'r': /* set scrolling region */
         interpret_csi_DECSTBM(t, csiparam, param_count); break;
       case 's': /* save cursor location */
-        t->curs_srow = t->curs_row - t->lines;
-        t->curs_scol = t->curs_col;
+        save_curs(t);
         break;
       case 'u': /* restore cursor location */
-        t->curs_row = t->lines + t->curs_srow;
-        t->curs_col = t->curs_scol;
-        clamp_cursor_to_bounds(t);
+        restore_curs(t);
         break;
       default:
         break;
     }
 }
 
+/* Interpret an 'index' (IND) sequence */
+static void interpret_esc_IND(madtty_t *t)
+{
+    if (t->curs_row < t->lines + t->rows - 1)
+        t->curs_row++;
+}
+
+/* Interpret a 'reverse index' (RI) sequence */
+static void interpret_esc_RI(madtty_t *t)
+{
+    if (t->curs_row > t->lines)
+        t->curs_row--;
+    else {
+        t_row_roll(t->scroll_top, t->scroll_bot, -1);
+        t_row_set(t->scroll_top, 0, t->cols, t);
+    }
+}
+
+/* Interpret a 'next line' (NEL) sequence */
+static void interpret_esc_NEL(madtty_t *t)
+{
+    if (t->curs_row < t->lines + t->rows - 1) {
+        t->curs_row++;
+        t->curs_col = 0;
+    }
+}
+
+/* Interpret a 'select character set' (SCS) sequence */
+static void interpret_esc_SCS(madtty_t *t)
+{
+    /* ESC ( sets G0, ESC ) sets G1 */
+    t->charsets[!!(t->ebuf[0] == ')')] = (t->ebuf[1] == '0');
+    t->graphmode = t->charsets[0];
+}
+
 static void try_interpret_escape_seq(madtty_t *t)
 {
-    char lastchar  = t->ebuf[t->elen-1];
-    if(!*t->ebuf)
+    char lastchar = t->ebuf[t->elen - 1];
+
+    if (!*t->ebuf)
        return;
-    if(t->handler){
-       switch((*(t->handler))(t, t->ebuf)){
+
+    if (t->handler) {
+       switch ((*(t->handler))(t, t->ebuf)) {
           case MADTTY_HANDLER_OK:
 	     goto cancel;
           case MADTTY_HANDLER_NOTYET:
@@ -715,25 +786,21 @@ static void try_interpret_escape_seq(madtty_t *t)
 	     return;
        }
     }
-    switch (*t->ebuf) {
-      case 'M':
-        interpret_csi_SR(t);
-        cancel_escape_sequence(t);
-        return;
 
+    switch (*t->ebuf) {
       case '(':
       case ')':
-        if (t->elen == 2)
-            goto cancel;
+        if (t->elen == 2) {
+            interpret_esc_SCS(t);
+            cancel_escape_sequence(t);
+            return;
+        }
         break;
 
       case ']': /* xterm thing */
         if (lastchar == '\a')
             goto cancel;
         break;
-
-      default:
-        goto cancel;
 
       case '[':
         if (is_valid_csi_ender(lastchar)) {
@@ -742,6 +809,36 @@ static void try_interpret_escape_seq(madtty_t *t)
             return;
         }
         break;
+
+      case '7': /* DECSC: save cursor and attributes */
+        save_attrs(t);
+        save_curs(t);
+        cancel_escape_sequence(t);
+        return;
+
+      case '8': /* DECRC: restore cursor and attributes */
+        restore_attrs(t);
+        restore_curs(t);
+        cancel_escape_sequence(t);
+        return;
+
+      case 'D': /* IND: index */
+        interpret_esc_IND(t);
+        cancel_escape_sequence(t);
+        return;
+
+      case 'M': /* RI: reverse index */
+        interpret_esc_RI(t);
+        cancel_escape_sequence(t);
+        return;
+
+      case 'E': /* NEL: next line */
+        interpret_esc_NEL(t);
+        cancel_escape_sequence(t);
+        return;
+
+      default:
+        goto cancel;
     }
 
     if (t->elen + 1 >= (int)sizeof(t->ebuf)) {
@@ -770,7 +867,7 @@ static void madtty_process_nonprinting(madtty_t *t, wchar_t wc)
 
       case C0_BEL:
         /* maybe a visual bell would be nice? */
-        if(t->bell)
+        if (t->bell)
             beep();
         break;
 
@@ -795,11 +892,11 @@ static void madtty_process_nonprinting(madtty_t *t, wchar_t wc)
         cursor_line_down(t);
         break;
 
-      case C0_SO:		/* shift out - acs */
-        t->graphmode = true;
+      case C0_SO:		/* shift out, invoke the G1 character set */
+        t->graphmode = t->charsets[1];
         break;
-      case C0_SI:		/* shift in - acs */
-        t->graphmode = false;
+      case C0_SI:		/* shift in, invoke the G0 character set */
+        t->graphmode = t->charsets[0];
         break;
     }
 }
@@ -810,11 +907,12 @@ static void is_utf8_locale(void)
     is_utf8 = !strcmp(cset, "UTF-8");
 }
 
-// vt100 special graphics and line drawing
-// 5f-7e standard vt100
-// 40-5e rxvt extension for extra curses acs chars
-static uint16_t const vt100_utf8[62] = { // 41 .. 7e
-            0x2191, 0x2193, 0x2192, 0x2190, 0x2588, 0x259a, 0x2603, // 41-47 hi mr. snowman!
+/* vt100 special graphics and line drawing
+ * 5f-7e standard vt100
+ * 40-5e rxvt extension for extra curses acs chars
+ */
+static uint16_t const vt100_utf8[62] = {
+            0x2191, 0x2193, 0x2192, 0x2190, 0x2588, 0x259a, 0x2603, // 41-47
          0,      0,      0,      0,      0,      0,      0,      0, // 48-4f
          0,      0,      0,      0,      0,      0,      0,      0, // 50-57
          0,      0,      0,      0,      0,      0,      0, 0x0020, // 58-5f
@@ -1033,6 +1131,12 @@ madtty_t *madtty_create(int rows, int cols, int scroll_buf_sz)
     }
     t->scroll_buf_ptr = t->scroll_buf_len = 0;
     t->scroll_amount = 0;
+
+    /* clear the screen */
+    t_row_set(t->curs_row, t->curs_col, t->cols - t->curs_col, t);
+    for (t_row_t *row = t->curs_row + 1; row < t->lines + t->rows; row++)
+        t_row_set(row, 0, t->cols, t);
+
     return t;
 }
 
@@ -1202,8 +1306,6 @@ void madtty_togglebell(madtty_t *t)
     t->bell = !t->bell;
 }
 
-/******************************************************/
-
 pid_t madtty_forkpty(madtty_t *t, const char *p, const char *argv[], const char *env[], int *pty)
 {
     struct winsize ws;
@@ -1266,7 +1368,7 @@ void madtty_keypress(madtty_t *t, int keycode)
     madtty_noscroll(t);
 
     if (keycode >= 0 && keycode < KEY_MAX && keytable[keycode]) {
-        switch(keycode) {
+        switch (keycode) {
             case KEY_UP:
             case KEY_DOWN:
             case KEY_RIGHT:
@@ -1290,12 +1392,54 @@ void madtty_keypress_sequence(madtty_t *t, const char *seq)
      * do it. the sequence we look for is \eO + a character
      * representing the number.
      */
-    if(len == 3 && seq[0] == '\e' && seq[1] == 'O') {
+    if (len == 3 && seq[0] == '\e' && seq[1] == 'O') {
         key = seq[2] - 64;
-        if(key >= '0' && key <= '9')
+        if (key >= '0' && key <= '9')
             madtty_keypress(t, key);
     } else
         term_write(t, seq, len);
+}
+
+void madtty_mouse(madtty_t *t, int x, int y, mmask_t mask)
+{
+    char seq[6] = { '\e', '[', 'M' }, state = 0, button = 0;
+
+    if (!t->mousetrack)
+        return;
+
+    if (mask & (BUTTON1_PRESSED | BUTTON1_CLICKED))
+        button = 0;
+    else if (mask & (BUTTON2_PRESSED | BUTTON2_CLICKED))
+        button = 1;
+    else if (mask & (BUTTON3_PRESSED | BUTTON3_CLICKED))
+        button = 2;
+    else if (mask & (BUTTON1_RELEASED | BUTTON2_RELEASED | BUTTON3_RELEASED))
+        button = 3;
+
+    if (mask & BUTTON_SHIFT)
+        state |= 4;
+    if (mask & BUTTON_ALT)
+        state |= 8;
+    if (mask & BUTTON_CTRL)
+        state |= 16;
+
+    seq[3] = 32 + button + state;
+    seq[4] = 32 + x;
+    seq[5] = 32 + y;
+
+    term_write(t, seq, sizeof seq);
+
+    if (mask & (BUTTON1_CLICKED | BUTTON2_CLICKED | BUTTON3_CLICKED)) {
+        /* send a button release event */
+        button = 3;
+        seq[3] = 32 + button + state;
+        term_write(t, seq, sizeof seq);
+    }
+}
+
+static unsigned color_hash(short f, short b)
+{
+	return ((f+1) * (COLORS+1)) + b + 1;
 }
 
 void madtty_color_set(WINDOW *win, short fg, short bg)
@@ -1309,7 +1453,7 @@ void madtty_color_set(WINDOW *win, short fg, short bg)
                 short f, g;
                 color2palette[c] = palette_cur;
                 pair_content(palette_cur, &f, &g);
-                color2palette[color_hash(f,g)] = 0;
+                color2palette[color_hash(f, g)] = 0;
                 init_pair(palette_cur, fg, bg);
                 palette_cur++;
                 if (palette_cur >= palette_end) {
@@ -1323,8 +1467,10 @@ void madtty_color_set(WINDOW *win, short fg, short bg)
         if (has_default) {
             wcolor_set(win, (fg+1)*16 + bg+1, 0);
         } else {
-            if (fg==-1) fg = COLOR_WHITE;
-            if (bg==-1) bg = COLOR_BLACK;
+            if (fg == -1)
+                fg = COLOR_WHITE;
+            if (bg == -1)
+                bg = COLOR_BLACK;
             wcolor_set(win, (7-fg)*8 + bg, 0);
         }
     }
@@ -1343,7 +1489,7 @@ void madtty_init_colors(void)
         int bg = 0, fg = 0;
         for (int i = palette_start; i < palette_end; i++) {
             init_pair(i, bg, fg);
-            color2palette[color_hash(bg,fg)] = i;
+            color2palette[color_hash(bg, fg)] = i;
             if (++fg == COLORS) {
                 fg = 0;
                 bg++;
