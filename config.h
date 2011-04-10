@@ -53,7 +53,7 @@ Layout layouts[] = {
 	{ "[ ]", fullscreen },
 };
 
-#define MOD CTRL('g')
+#define MOD CTRL('q')
 
 /* you can at most specifiy MAX_ARGS (2) number of arguments */
 Key keys[] = {
@@ -87,7 +87,7 @@ Key keys[] = {
 	{ MOD, '&',	    { focusn,	      { "7" }			  } },
 	{ MOD, '*',	    { focusn,	      { "8" }			  } },
 	{ MOD, '(',	    { focusn,	      { "9" }			  } },
-	{ MOD, 'q',	    { quit,	      { NULL }			  } },
+        //{ MOD, 'q',	    { quit,	      { NULL }			  } },
 	{ MOD, 'G',	    { escapekey,      { NULL }			  } },
 	{ MOD, 'a',       { togglerunall,   { NULL }                    } },
 	{ MOD, 'r',	    { redraw,	      { NULL }			  } },
