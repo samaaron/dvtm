@@ -12,14 +12,14 @@
  * A_INVIS         Invisible or blank mode
  *
  */
-#define BLUE            (COLORS==256 ? 68 : COLOR_BLUE)
+#define BLUE            197
 
 #define SELECTED_ATTR   A_NORMAL
 #define SELECTED_FG     BLUE
 #define SELECTED_BG     -1
 /* curses attributes for normal (not selected) windows */
 #define NORMAL_ATTR     A_NORMAL
-#define NORMAL_FG       -1
+#define NORMAL_FG       241
 #define NORMAL_BG       -1
 /* status bar (command line option -s) position */
 #define BARPOS		BarTop /* BarBot, BarOff */
@@ -38,7 +38,7 @@
 /* master width factor [0.1 .. 0.9] */
 #define MWFACT  0.5
 /* scroll back buffer size in lines */
-#define SCROLL_BUF_SIZE 500
+#define SCROLL_BUF_SIZE 100000
 
 #include "tile.c"
 #include "grid.c"
@@ -53,49 +53,49 @@ Layout layouts[] = {
 	{ "[ ]", fullscreen },
 };
 
-#define MOD CTRL('g')
+#define MOD CTRL('q')
 
 /* you can at most specifiy MAX_ARGS (2) number of arguments */
 Key keys[] = {
-	{ MOD, 'c',       { create,         { NULL }                    } },
-	{ MOD, 'x',       { killclient,     { NULL }                    } },
-	{ MOD, 'j',       { focusnext,      { NULL }                    } },
-	{ MOD, 'u',       { focusnextnm,    { NULL }                    } },
-	{ MOD, 'i',       { focusprevnm,    { NULL }                    } },
-	{ MOD, 'k',       { focusprev,      { NULL }                    } },
-	{ MOD, 't',       { setlayout,      { "[]=" }                   } },
-	{ MOD, 'g',       { setlayout,      { "+++" }                   } },
-	{ MOD, 'b',       { setlayout,      { "TTT" }                   } },
-	{ MOD, 'm',       { setlayout,      { "[ ]" }                   } },
-	{ MOD, ' ',       { setlayout,      { NULL }                    } },
-	{ MOD, 'h',       { setmwfact,      { "-0.05" }                 } },
-	{ MOD, 'l',       { setmwfact,      { "+0.05" }                 } },
-	{ MOD, '.',       { toggleminimize, { NULL }                    } },
+	{ MOD, '3',	    { create,	      { NULL }			  } },
+	{ MOD, '0',	    { killclient,     { NULL }			  } },
+	{ MOD, 'o',	    { focusnext,      { NULL }			  } },
+	{ MOD, 'f',	    { focusnextnm,    { NULL }			  } },
+	{ MOD, 'b',	 { focusprevnm,	   { NULL }		       } },
+	{ MOD, 'i',	 { focusprev,	   { NULL }		       } },
+	{ MOD, 't',	 { setlayout,	   { "[]=" }		       } },
+	{ MOD, 'g',	 { setlayout,	   { "+++" }		       } },
+	{ MOD, 's',	 { setlayout,	   { "TTT" }		       } },
+	{ MOD, '1',	 { setlayout,	   { "[ ]" }		       } },
+	{ MOD, ' ',	 { setlayout,	   { NULL }		       } },
+	{ MOD, ',',	 { setmwfact,	   { "-0.05" }		       } },
+	{ MOD, '.',	 { setmwfact,	   { "+0.05" }		       } },
+	{ MOD, 'm',	 { toggleminimize, { NULL }		       } },
 #ifdef CONFIG_STATUSBAR
-	{ MOD, 's',       { togglebar,      { NULL }                    } },
+	{ MOD, 'u',       { togglebar,      { NULL }                    } },
 #endif
 #ifdef CONFIG_MOUSE
 	{ MOD, 'M',       { mouse_toggle,   { NULL }                    } },
 #endif
-	{ MOD, '\n',      { zoom ,          { NULL }                    } },
-	{ MOD, '1',       { focusn,         { "1" }                     } },
-	{ MOD, '2',       { focusn,         { "2" }                     } },
-	{ MOD, '3',       { focusn,         { "3" }                     } },
-	{ MOD, '4',       { focusn,         { "4" }                     } },
-	{ MOD, '5',       { focusn,         { "5" }                     } },
-	{ MOD, '6',       { focusn,         { "6" }                     } },
-	{ MOD, '7',       { focusn,         { "7" }                     } },
-	{ MOD, '8',       { focusn,         { "8" }                     } },
-	{ MOD, '9',       { focusn,         { "9" }                     } },
-	{ MOD, 'q',       { quit,           { NULL }                    } },
-	{ MOD, 'G',       { escapekey,      { NULL }                    } },
+	{ MOD, '\n',	    { zoom ,	      { NULL }			  } },
+	{ MOD, '!',	    { focusn,	      { "1" }			  } },
+	{ MOD, '@',	    { focusn,	      { "2" }			  } },
+	{ MOD, '#',	    { focusn,	      { "3" }			  } },
+	{ MOD, '$',	    { focusn,	      { "4" }			  } },
+	{ MOD, '%',	    { focusn,	      { "5" }			  } },
+	{ MOD, '^',	    { focusn,	      { "6" }			  } },
+	{ MOD, '&',	    { focusn,	      { "7" }			  } },
+	{ MOD, '*',	    { focusn,	      { "8" }			  } },
+	{ MOD, '(',	    { focusn,	      { "9" }			  } },
+        //{ MOD, 'q',	    { quit,	      { NULL }			  } },
+	{ MOD, 'G',	    { escapekey,      { NULL }			  } },
 	{ MOD, 'a',       { togglerunall,   { NULL }                    } },
-	{ MOD, 'r',       { redraw,         { NULL }                    } },
-	{ MOD, 'X',       { lock,           { NULL }                    } },
-	{ MOD, 'B',       { togglebell,     { NULL }                    } },
-	{ MOD, KEY_PPAGE, { scrollback,     { "-1" }                    } },
-	{ MOD, KEY_NPAGE, { scrollback,     { "1"  }                    } },
-	{ MOD, '?',       { create,         { "man dvtm", "dvtm help" } } },
+	{ MOD, 'r',	    { redraw,	      { NULL }			  } },
+	{ MOD, 'X',	    { lock,	      { NULL }			  } },
+	{ MOD, 'B',	    { togglebell,     { NULL }			  } },
+	{ MOD, 'p',	    { scrollback,     { "-1" }			  } },
+	{ MOD, 'n',	    { scrollback,     { "1"  }			  } },
+	{ MOD, '?',	    { create,	      { "man dvtm", "dvtm help" } } },
 };
 
 static const ColorRule colorrules[] = {
