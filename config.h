@@ -12,6 +12,8 @@
  * A_INVIS         Invisible or blank mode
  *
  */
+
+//For colours see http://upload.wikimedia.org/wikipedia/commons/9/95/Xterm_color_chart.png
 #define BLUE            197
 
 #define SELECTED_ATTR   A_NORMAL
@@ -19,7 +21,7 @@
 #define SELECTED_BG     -1
 /* curses attributes for normal (not selected) windows */
 #define NORMAL_ATTR     A_NORMAL
-#define NORMAL_FG       241
+#define NORMAL_FG       236
 #define NORMAL_BG       -1
 /* status bar (command line option -s) position */
 #define BARPOS		BarTop /* BarBot, BarOff */
